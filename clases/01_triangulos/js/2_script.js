@@ -1,0 +1,172 @@
+/*============== Creating a canvas ====================*/
+var canvas = document.getElementById("my_Canvas");
+gl = canvas.getContext("experimental-webgl");
+
+/*======== Defining and storing the geometry ===========*/
+
+// Corregir los vértices para que cada punto tenga coordenadas x, y, z
+/*
+var vertices = [
+  -0.5, 0.5,
+  // v0
+  -0.5, -0.5,
+  // v1
+  0.5, -0.5,
+  // v2
+  0.5, 0.5,
+  // v3
+  0.25, 0.75,
+  // v4
+];
+*/
+
+// indices = [0, 1, 2, 1, 2, 3, 2, 3, 4];
+
+// Create an empty buffer object to store vertex buffer
+
+var vertices = [];
+var indices = [];
+
+function hexagono(radio, niveles) {
+  //* Case base
+  if (niveles <= 0 || radio <= 0.1) {
+    return;
+  }
+
+  // Agregar el centro
+  vertices.push(0.0); // x centro
+  vertices.push(0.0); // y centro
+
+  let vertx = 6; // Número de vértices  * param
+  let angulo = (2 * Math.PI) / vertx; // Ángulo entre vértices
+  let startIndex = vertices.length / 2 - 1;
+
+  // Crear los vértices del pentágono
+  for (let i = 0; i < vertx; i++) {
+    let currentAngle = i * angulo;
+    vertices.push(radio * Math.cos(currentAngle)); // x
+    vertices.push(radio * Math.sin(currentAngle)); // y
+  }
+
+  // Crear los índices para formar los triángulos
+  // Conectando el centro con cada par de vértices consecutivos
+  for (let i = 1; i <= vertx; i++) {
+    //indices.push(0); // Centro
+    indices.push(startIndex + i);
+    indices.push(startIndex + ((i % vertx) + 1));
+  }
+
+  hexagono(radio - 0.1, niveles - 1);
+}
+
+hexagono(0.5, 4);
+
+var vertex_buffer = gl.createBuffer();
+
+// Bind appropriate array buffer to it
+gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
+
+// Pass the vertex data to the buffer
+gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(vertices), gl.STATIC_DRAW);
+
+// Unbind the buffer
+gl.bindBuffer(gl.ARRAY_BUFFER, null);
+
+// Create an empty buffer object to store Index buffer
+var Index_Buffer = gl.createBuffer();
+
+// Bind appropriate array buffer to it
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, Index_Buffer);
+
+// Pass the vertex data to the buffer
+gl.bufferData(
+  gl.ELEMENT_ARRAY_BUFFER,
+  new Uint16Array(indices),
+  gl.STATIC_DRAW
+);
+
+// Unbind the buffer
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, null);
+
+/*================ Shaders ====================*/
+
+// Vertex shader source code
+var vertCode =
+  "attribute vec2 coordinates;" +
+  "void main(void) {" +
+  " gl_Position = vec4(coordinates, 0.0 , 1.0);" +
+  "}";
+
+// Create a vertex shader object
+var vertShader = gl.createShader(gl.VERTEX_SHADER);
+
+// Attach vertex shader source code
+gl.shaderSource(vertShader, vertCode);
+
+// Compile the vertex shader
+gl.compileShader(vertShader);
+
+//fragment shader source code
+var fragCode =
+  "void main(void) {" +
+  " gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);" + // Alpha cambiado a 1.0
+  "}";
+
+// Create fragment shader object
+var fragShader = gl.createShader(gl.FRAGMENT_SHADER);
+
+// Attach fragment shader source code
+gl.shaderSource(fragShader, fragCode);
+
+// Compile the fragmentt shader
+gl.compileShader(fragShader);
+
+// Create a shader program object to store
+// the combined shader program
+var shaderProgram = gl.createProgram();
+
+// Attach a vertex shader
+gl.attachShader(shaderProgram, vertShader);
+
+// Attach a fragment shader
+gl.attachShader(shaderProgram, fragShader);
+
+// Link both the programs
+gl.linkProgram(shaderProgram);
+
+// Use the combined shader program object
+gl.useProgram(shaderProgram);
+
+/*======= Associating shaders to buffer objects =======*/
+
+// Bind vertex buffer object
+gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
+
+// Bind index buffer object
+gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, Index_Buffer);
+
+// Get the attribute location
+var coord = gl.getAttribLocation(shaderProgram, "coordinates");
+
+// Point an attribute to the currently bound VBO
+gl.vertexAttribPointer(coord, 2, gl.FLOAT, false, 0, 0);
+
+// Enable the attribute
+gl.enableVertexAttribArray(coord);
+
+/*=========Drawing the triangle===========*/
+
+// Clear the canvas
+gl.clearColor(0.5, 0.5, 0.5, 0.9);
+
+// Enable the depth test
+gl.enable(gl.DEPTH_TEST);
+
+// Clear the color buffer bit
+gl.clear(gl.COLOR_BUFFER_BIT);
+
+// Set the view port
+gl.viewport(0, 0, canvas.width, canvas.height);
+
+// Draw the triangle
+gl.drawElements(gl.LINES, indices.length, gl.UNSIGNED_SHORT, 0);
