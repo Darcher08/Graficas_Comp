@@ -8,10 +8,6 @@ function hexagono(radio, niveles) {
     return;
   }
 
-  // Agregar el centro
-  vertices.push(0.0); // x centro
-  vertices.push(0.0); // y centro
-
   let vertx = 6; // Número de vértices
   let angulo = (2 * Math.PI) / vertx; // Ángulo entre vértices
   let startIndex = vertices.length / 2 - 1;
@@ -36,7 +32,7 @@ function hexagono(radio, niveles) {
 var vertices = [];
 var indices = [];
 
-hexagono(0.5, 4);
+hexagono(1, 12);
 
 var vertex_buffer = gl.createBuffer();
 
