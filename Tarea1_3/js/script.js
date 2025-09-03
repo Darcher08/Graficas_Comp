@@ -74,22 +74,35 @@ gl.uniform4f(translation, Tx, Ty, Tz, 0.0);
 
 var rotation = gl.getUniformLocation(shaderProgram, "rotation");
 
-function checkBounds(x, y, z) {
-  // Considerando el tamaño del triángulo (0.5 unidades)
-  const triangleSize = 0.5;
-  const maxX = 1.0 - triangleSize;
-  const minX = -1.0 + triangleSize;
-  const maxY = 1.0 - triangleSize;
-  const minY = -1.0 + triangleSize;
+function checkBounds(x, y, z, angle) {
+  const verts = [
+    [-0.5, 0.5],
+    [-0.5, -0.5],
+    [0.5, -0.5],
+  ];
+
+  let maxXAlc = 0,
+    maxYAlc = 0;
+  for (let i = 0; i < verts.length; i++) {
+    const vx = verts[i][0];
+    const vy = verts[i][1];
+
+    const rx = vx * Math.cos(angle) - vy * Math.sin(angle);
+    const ry = vx * Math.sin(angle) + vy * Math.cos(angle);
+    maxXAlc = Math.max(maxXAlc, Math.abs(rx));
+    maxYAlc = Math.max(maxYAlc, Math.abs(ry));
+  }
+
+  const minX = -1 + maxXAlc;
+  const maxX = 1 - maxXAlc;
+  const minY = -1 + maxYAlc;
+  const maxY = 1 - maxYAlc;
 
   let newDirection = null;
-
-  // Si alcanza cualquier límite, indicar cambio de dirección
   if (x >= maxX || x <= minX || y >= maxY || y <= minY) {
     newDirection = true;
   }
 
-  // Ajustar posición dentro de límites
   x = Math.max(minX, Math.min(maxX, x));
   y = Math.max(minY, Math.min(maxY, y));
 
@@ -102,12 +115,6 @@ function fn_translation(tiempos, x, y, z, direction) {
     return;
   }
 
-  let r = Math.random();
-  let g = Math.random();
-  let b = Math.random();
-
-  gl.clearColor(r, g, b, 0.9);
-
   let move = 0.02;
   x = x + move * direction;
   y = y + move * direction;
@@ -118,7 +125,7 @@ function fn_translation(tiempos, x, y, z, direction) {
   gl.uniform1f(rotation, angle);
 
   // Verificar límites
-  const bounded = checkBounds(x, y, z);
+  const bounded = checkBounds(x, y, z, angle);
 
   // Si alcanzó un límite, cambiar dirección
   if (bounded.needsDirectionChange) {
@@ -146,13 +153,3 @@ function fn_translation(tiempos, x, y, z, direction) {
 setTimeout(() => {
   fn_translation(2000, 0, 0, 0, 1);
 }, 1000);
-
-/*=================Drawing the triangle and transforming it========================*/
-
-/*
-gl.enable(gl.DEPTH_TEST);
-
-gl.clear(gl.COLOR_BUFFER_BIT);
-gl.viewport(0, 0, canvas.width, canvas.height);
-gl.drawArrays(gl.TRIANGLES, 0, 3);
-*/
