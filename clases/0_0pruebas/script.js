@@ -1,19 +1,12 @@
 import {
-    Cube, //clase
-    get_projection,
-    rotateX,
-    rotateY,
-    rotateZ,
-    cameraDepth,
-    cameraRigth_Left,
-    cameraUp_Down,
-
+    Cube //clase
 } from "./utils.js";
+import { mat4 } from 'https://cdn.jsdelivr.net/npm/gl-matrix@3.4.4/+esm'
 
 
 // Seleccionar el canvas con el que se va trabajar
 var canvas = document.getElementById("my_Canvas");
-var gl = canvas.getContext("experimental-webgl");
+var gl = canvas.getContext("webgl") || canvas.getContext("experimental-webgl");
 /*
 Como son programas que van a utilizar 3 dimensiones se deben
 crear vertices que conceptualmente, tengan 3 puntos
@@ -32,9 +25,10 @@ var vertices = [
 
 // Colores para cada cara (valores RGB normalizados)
 
+// Normaliza los colores (divide entre 7 para que estén entre 0 y 1)
 var colors = [
-    5, 3, 7, 5, 3, 7, 5, 3, 7, 5, 3, 7,  // morado para cara frontal
-    1, 1, 3, 1, 1, 3, 1, 1, 3, 1, 1, 3,  // amarillo para cara trasera
+    5 / 7, 3 / 7, 7 / 7, 5 / 7, 3 / 7, 7 / 7, 5 / 7, 3 / 7, 7 / 7, 5 / 7, 3 / 7, 7 / 7,  // morado para cara frontal
+    1 / 3, 1 / 3, 3 / 3, 1 / 3, 1 / 3, 3 / 3, 1 / 3, 1 / 3, 3 / 3, 1 / 3, 1 / 3, 3 / 3,  // amarillo para cara trasera
     0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0, 1,  // azul para cara izquierda
     1, 0, 0, 1, 0, 0, 1, 0, 0, 1, 0, 0,  // rojo para cara derecha
     1, 1, 0, 1, 1, 0, 1, 1, 0, 1, 1, 0,  // amarillo para cara inferior
@@ -77,15 +71,15 @@ gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, new Uint16Array(indices), gl.STATIC_DRAW)
  * y la Mmatrix, es la que controla el posible movimiento que le queramos dar
  * a nuestros objetos en traslacion, escala o rotacion
  */
+
 var vertCode =
     "attribute vec3 position;" +
     "uniform mat4 Pmatrix;" +
-    "uniform mat4 Vmatrix;" +
-    "uniform mat4 Mmatrix;" +
+    "uniform mat4 MVmatrix;" +
     "attribute vec3 color;" +
     "varying vec3 vColor;" +
     "void main(void) { " +
-    "gl_Position = Pmatrix*Vmatrix*Mmatrix*vec4(position, 1.);" +
+    "gl_Position = Pmatrix*MVmatrix*vec4(position, 1.);" +
     "vColor = color;" +
     "}";
 
@@ -115,30 +109,21 @@ gl.linkProgram(shaderProgram);
 
 // Conectar atributos
 var Pmatrix = gl.getUniformLocation(shaderProgram, "Pmatrix");
-var Vmatrix = gl.getUniformLocation(shaderProgram, "Vmatrix");
-var Mmatrix = gl.getUniformLocation(shaderProgram, "Mmatrix");
+var MVmatrix = gl.getUniformLocation(shaderProgram, "MVmatrix");
 
 gl.bindBuffer(gl.ARRAY_BUFFER, vertex_buffer);
 
 var position = gl.getAttribLocation(shaderProgram, "position");
 gl.vertexAttribPointer(position, 3, gl.FLOAT, false, 0, 0);
 gl.enableVertexAttribArray(position);
-
 gl.bindBuffer(gl.ARRAY_BUFFER, color_buffer);
 
 var color = gl.getAttribLocation(shaderProgram, "color");
 gl.vertexAttribPointer(color, 3, gl.FLOAT, false, 0, 0);
 gl.enableVertexAttribArray(color);
-
 gl.useProgram(shaderProgram);
 
-var proj_matrix = get_projection(40, canvas.width / canvas.clientHeight, 1, 100);
-var view_matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
-var mov_matrix = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1];
 
-//* Este alejamiento se hace con funciones de utils
-cameraDepth(view_matrix, 15);
-cameraRigth_Left(view_matrix, 5)
 
 
 // Preparar para dibujar
@@ -154,10 +139,6 @@ gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 // Enviar matrices a los shaders
 // toda la informacion almancenada anteriormente
 
-gl.uniformMatrix4fv(Pmatrix, false, proj_matrix);
-gl.uniformMatrix4fv(Vmatrix, false, view_matrix);
-gl.uniformMatrix4fv(Mmatrix, false, mov_matrix);
-
 // Crear múltiples cubos
 const cubes = [
     new Cube(0, 0, 0, 0, 0, 0, 1),        // Centro
@@ -168,26 +149,64 @@ const cubes = [
 ];
 
 // Función de renderizado
-function renderCubes(cubesToDraw) {
+// Modifica renderCubes para recibir viewMatrix
+function renderCubes(cubesToDraw, viewMatrix) {
     gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
 
     cubesToDraw.forEach(cube => {
-        cube.draw(gl, Mmatrix, indices);
+        // Crear matriz modelo
+        const modelMatrix = mat4.create();
+        mat4.translate(modelMatrix, modelMatrix, cube.position);
+        mat4.rotateX(modelMatrix, modelMatrix, cube.rotation[0]);
+        mat4.rotateY(modelMatrix, modelMatrix, cube.rotation[1]);
+        mat4.rotateZ(modelMatrix, modelMatrix, cube.rotation[2]);
+        mat4.scale(modelMatrix, modelMatrix, [cube.scale, cube.scale, cube.scale]);
+
+        // Combinar con la vista
+        const modelViewMatrix = mat4.create();
+        mat4.multiply(modelViewMatrix, viewMatrix, modelMatrix);
+
+        // Enviar al shader
+        gl.uniformMatrix4fv(MVmatrix, false, modelViewMatrix);
+
+        // Dibujar
+        gl.drawElements(gl.TRIANGLES, indices.length, gl.UNSIGNED_SHORT, 0);
     });
 }
+
+
 // Función de animación con sistema de cubos
+// Modifica animateCubes para pasar viewMatrix y projectionMatrix
 function animateCubes() {
     let time = Date.now() * 0.001;
 
+    const fieldOfView = Math.PI / 4; // 45 grados
+    const aspect = canvas.width / canvas.height;
+    const zNear = 1;
+    const zFar = 100.0;
+
+    const projectionMatrix = mat4.create();
+    mat4.perspective(projectionMatrix, fieldOfView, aspect, zNear, zFar);
+
+    const viewMatrix = mat4.create();
+    mat4.translate(viewMatrix, viewMatrix, [0, -2 / time, -8.0]);
+    mat4.rotate(viewMatrix, viewMatrix, time, [1, 0, 0]);
+    mat4.rotate(viewMatrix, viewMatrix, time, [0, 1, 0]);
+    mat4.rotate(viewMatrix, viewMatrix, time, [0, 0, 1]);
+
+    gl.uniformMatrix4fv(Pmatrix, false, projectionMatrix);
+
     // Animar cada cubo individualmente
+    /*
     cubes[0].rotate(0.01, 0.02, 0);
     cubes[1].setPosition(3 + Math.sin(time), 0, 0);
     cubes[1].rotate(0, 0.03, 0);
     cubes[2].setPosition(-3, Math.cos(time) * 2, 0);
     cubes[3].rotate(0.02, 0, 0.01);
     cubes[4].setPosition(0, -3, Math.sin(time * 2) * 2);
-
-    renderCubes(cubes);
+    */
+    // Pasa viewMatrix a renderCubes
+    renderCubes(cubes, viewMatrix);
     requestAnimationFrame(animateCubes);
 }
 
