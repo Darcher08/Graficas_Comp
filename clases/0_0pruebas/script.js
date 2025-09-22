@@ -205,6 +205,7 @@ function animateCubes() {
     cubes[3].rotate(0.02, 0, 0.01);
     cubes[4].setPosition(0, -3, Math.sin(time * 2) * 2);
     */
+
     // Pasa viewMatrix a renderCubes
     renderCubes(cubes, viewMatrix);
     requestAnimationFrame(animateCubes);
