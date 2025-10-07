@@ -1,0 +1,244 @@
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <title>WebGL - Agrupamiento por Color</title>
+        <style>
+            body { margin: 0; background: #1a1a1a; }
+            canvas { width: 100vw; height: 100vh; display: block; }
+        </style>
+    </head>
+    <body>
+    <canvas id="canvas"></canvas>
+
+    <script id="vs" type="x-shader/x-vertex">
+        attribute vec2 pos;
+        attribute vec4 color;
+        attribute vec2 offset;
+        attribute float size;
+        uniform float aspect;
+        varying vec4 v_color;
+        void main() {
+            vec2 p = pos * size + offset;
+            p.x /= aspect;
+            gl_Position = vec4(p, 0, 1);
+            v_color = color;
+        }
+    </script>
+
+    <script id="fs" type="x-shader/x-fragment">
+        precision mediump float;
+        varying vec4 v_color;
+        void main() {
+            gl_FragColor = v_color;
+        }
+    </script>
+
+    <script>
+
+    const NUM = 10;
+
+    // Geometría de cruz
+    const cross = new Float32Array([
+        -0.1, 0.4,  -0.1, -0.4, 0.1, -0.4,
+        0.1, -0.4,  -0.1, 0.4,  0.1, 0.4,
+        0.4, -0.1,  -0.4, -0.1, -0.4, 0.1,
+        -0.4, 0.1,  0.4, -0.1, 0.4, 0.1
+    ]);
+
+    // Colores (Rojo, Verde y Azul)
+    const colors = new Float32Array([
+        1,0,0,1, 0,1,0,1, 0,0,1,1,
+        1,0,0,1, 0,1,0,1, 0,0,1,1,
+        1,0,0,1, 0,1,0,1, 0,0,1,1,
+        1,0,0,1
+    ]);
+
+    // Tamaños variados
+    const sizes = new Float32Array([
+        0.1, 0.3, 0.4,
+        0.2, 0.2, 0.35,
+        0.3, 0.1, 0.2,  
+        0.4
+    ]);
+
+    // Posiciones iniciales y objetivos
+    const instances = [];
+    for (let i = 0; i < NUM; i++) {
+        const angle = (i / NUM) * Math.PI * 2;
+        instances.push({
+            x: Math.cos(angle) * 0.7,
+            y: Math.sin(angle) * 0.7,
+            targetX: 0,
+            targetY: 0,
+            circleX: Math.cos(angle) * 0.7 ,
+            circleY: Math.sin(angle) * 0.7
+        });
+    }
+
+    // Agrupar por color y luego por tamaño
+    function getGroups() {
+        // 1. Crear array de índices del 0 al 9
+        const indices = [];
+        for (let i = 0; i < NUM; i++) {
+            indices.push(i);
+        }
+        
+        // 2. Ordenar por color primero, luego por tamaño
+        indices.sort((a, b) => {
+            // Obtener el color de cada índice
+            const redA = colors[a * 4];
+            const greenA = colors[a * 4 + 1];
+            const blueA = colors[a * 4 + 2];
+            
+            const redB = colors[b * 4];
+            const greenB = colors[b * 4 + 1];
+            const blueB = colors[b * 4 + 2];
+            
+            // Comparar colores componente por componente
+            if (redA !== redB) {
+                return redA - redB;
+            }
+            if (greenA !== greenB) {
+                return greenA - greenB;
+            }
+            if (blueB !== blueB) {
+                return blueA - blueB;
+            }
+            
+            // Si los colores son iguales, ordenar por tamaño
+            return sizes[a] - sizes[b];
+        });
+        
+        return indices;
+    }
+
+
+    const sorted = getGroups();
+
+    // Setup WebGL
+    const canvas = document.getElementById('canvas');
+    const gl = canvas.getContext('webgl');
+    const ext = gl.getExtension('ANGLE_instanced_arrays');
+
+    function createShader(type, source) {
+        const s = gl.createShader(type);
+        gl.shaderSource(s, source);
+        gl.compileShader(s);
+        return s;
+    }
+
+    const vs = createShader(gl.VERTEX_SHADER, document.getElementById('vs').text);
+    const fs = createShader(gl.FRAGMENT_SHADER, document.getElementById('fs').text);
+    const prog = gl.createProgram();
+    gl.attachShader(prog, vs);
+    gl.attachShader(prog, fs);
+    gl.linkProgram(prog);
+    gl.useProgram(prog);
+
+    // Buffers
+    const posBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, posBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, cross, gl.STATIC_DRAW);
+
+    const posLoc = gl.getAttribLocation(prog, 'pos');
+    gl.enableVertexAttribArray(posLoc);
+    gl.vertexAttribPointer(posLoc, 2, gl.FLOAT, false, 0, 0);
+
+    const offsetBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, offsetBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, NUM * 8, gl.DYNAMIC_DRAW);
+
+    const offsetLoc = gl.getAttribLocation(prog, 'offset');
+    gl.enableVertexAttribArray(offsetLoc);
+    gl.vertexAttribPointer(offsetLoc, 2, gl.FLOAT, false, 0, 0);
+    ext.vertexAttribDivisorANGLE(offsetLoc, 1);
+
+    const colorBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
+
+    const colorLoc = gl.getAttribLocation(prog, 'color');
+    gl.enableVertexAttribArray(colorLoc);
+    gl.vertexAttribPointer(colorLoc, 4, gl.FLOAT, false, 0, 0);
+    ext.vertexAttribDivisorANGLE(colorLoc, 1);
+
+    const sizeBuffer = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, sizeBuffer);
+    gl.bufferData(gl.ARRAY_BUFFER, sizes, gl.STATIC_DRAW);
+
+    const sizeLoc = gl.getAttribLocation(prog, 'size');
+    gl.enableVertexAttribArray(sizeLoc);
+    gl.vertexAttribPointer(sizeLoc, 1, gl.FLOAT, false, 0, 0);
+    ext.vertexAttribDivisorANGLE(sizeLoc, 1);
+
+    const aspectLoc = gl.getUniformLocation(prog, 'aspect');
+
+    // Animación
+    function render(t) {
+        t = t * 0.001;
+        const cycle = t % 15;
+        const sorting = cycle > 5 && cycle < 10;
+        const paused = cycle >10;
+
+        if (sorting) {
+            const progress = (cycle - 5) / 5; // 0 a 1
+            const numSorted = Math.floor(progress * NUM);
+            const spacing = 0.35;
+            const startX = -(NUM - 1) * spacing / 2;
+            
+            instances.forEach((inst, i) => {
+                const idx = sorted.indexOf(i);
+                // Solo mover los que ya están "ordenados"
+                if (idx <= numSorted) {
+                    inst.targetX = startX + idx * spacing;
+                    inst.targetY = 0;
+                } else {
+                    inst.targetX = inst.circleX;
+                    inst.targetY = inst.circleY;
+                }
+            });
+        } else {
+            instances.forEach(inst => {
+                inst.targetX = inst.circleX;
+                inst.targetY = inst.circleY;
+            });
+        }
+
+        // Interpolar 
+        if(!paused){
+            instances.forEach(inst => {
+                inst.x += (inst.targetX - inst.x) * 0.1;
+                inst.y += (inst.targetY - inst.y) * 0.1;
+            });
+        }
+
+        // Actualizar offsets
+        const offsets = new Float32Array(NUM * 2);
+        instances.forEach((inst, i) => {
+            offsets[i * 2] = inst.x;
+            offsets[i * 2 + 1] = inst.y;
+        });
+
+
+        gl.bindBuffer(gl.ARRAY_BUFFER, offsetBuffer);
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, offsets);
+
+        // Render
+        canvas.width = canvas.clientWidth;
+        canvas.height = canvas.clientHeight;
+        gl.viewport(0, 0, canvas.width, canvas.height);
+        
+        gl.uniform1f(aspectLoc, canvas.width / canvas.height);
+        
+        gl.clearColor(0.1, 0.1, 0.1, 1);
+        gl.clear(gl.COLOR_BUFFER_BIT);
+        
+        ext.drawArraysInstancedANGLE(gl.TRIANGLES, 0, 12, NUM);
+        requestAnimationFrame(render);
+    }
+
+    render(0);
+    </script>
+    </body>
+    </html>
