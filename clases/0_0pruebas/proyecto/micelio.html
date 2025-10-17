@@ -1,0 +1,959 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simulador de Red Micelial</title>
+    <style>
+      * {
+        margin: 0;
+        padding: 0;
+        box-sizing: border-box;
+      }
+
+      body {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+        overflow: hidden;
+        background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      }
+
+      #canvas-container {
+        width: 100vw;
+        height: 100vh;
+      }
+
+      #info-panel {
+        position: absolute;
+        top: 20px;
+        left: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        color: #00ff88;
+        padding: 20px;
+        border-radius: 10px;
+        font-size: 14px;
+        max-width: 320px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(0, 255, 136, 0.3);
+      }
+
+      #info-panel h2 {
+        margin-bottom: 15px;
+        color: #00ffaa;
+        font-size: 18px;
+      }
+
+      #info-panel .stat {
+        margin: 8px 0;
+        display: flex;
+        justify-content: space-between;
+      }
+
+      #info-panel .stat-label {
+        color: #aaa;
+      }
+
+      #info-panel .stat-value {
+        color: #00ff88;
+        font-weight: bold;
+      }
+
+      #controls {
+        position: absolute;
+        bottom: 20px;
+        left: 20px;
+        background: rgba(0, 0, 0, 0.8);
+        padding: 20px;
+        border-radius: 10px;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(0, 255, 136, 0.3);
+      }
+
+      #controls button {
+        background: linear-gradient(135deg, #00ff88 0%, #00cc66 100%);
+        border: none;
+        color: #000;
+        padding: 12px 24px;
+        margin: 5px;
+        border-radius: 5px;
+        cursor: pointer;
+        font-weight: bold;
+        transition: all 0.3s ease;
+      }
+
+      #controls button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 5px 15px rgba(0, 255, 136, 0.4);
+      }
+
+      #controls button:active {
+        transform: translateY(0);
+      }
+
+      .slider-container {
+        margin: 10px 0;
+        color: #00ff88;
+      }
+
+      .slider-container label {
+        display: block;
+        margin-bottom: 5px;
+        font-size: 12px;
+      }
+
+      .slider-container input[type="range"] {
+        width: 100%;
+        accent-color: #00ff88;
+      }
+
+      #loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #00ff88;
+        font-size: 24px;
+        text-align: center;
+      }
+
+      .hidden {
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="canvas-container"></div>
+
+    <div id="loading">
+      <div>Cargando Three.js...</div>
+      <div style="font-size: 14px; margin-top: 10px">
+        Inicializando simulación
+      </div>
+    </div>
+
+    <div id="info-panel" class="hidden">
+      <h2>🍄 Red Micelial</h2>
+      <div class="stat">
+        <span class="stat-label">Árboles:</span>
+        <span class="stat-value" id="tree-count">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Conexiones:</span>
+        <span class="stat-value" id="connection-count">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Agentes activos:</span>
+        <span class="stat-value" id="agent-count">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Iteración:</span>
+        <span class="stat-value" id="iteration">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Estado:</span>
+        <span class="stat-value" id="status">Explorando...</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Partículas:</span>
+        <span class="stat-value" id="particle-count">0</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Longitud red:</span>
+        <span class="stat-value" id="network-length">0</span>
+      </div>
+    </div>
+
+    <div id="controls" class="hidden">
+      <button id="btn-regenerate">🔄 Regenerar Red</button>
+      <button id="btn-toggle-sim">⏸️ Pausar</button>
+      <button id="btn-reset">🌳 Nuevos Árboles</button>
+
+      <div class="slider-container">
+        <label
+          >Velocidad de simulación: <span id="speed-value">1.0</span>x</label
+        >
+        <input
+          type="range"
+          id="speed-slider"
+          min="0.1"
+          max="3"
+          step="0.1"
+          value="1"
+        />
+      </div>
+
+      <div class="slider-container">
+        <label>Número de agentes: <span id="agent-value">200</span></label>
+        <input
+          type="range"
+          id="agent-slider"
+          min="50"
+          max="500"
+          step="50"
+          value="200"
+        />
+      </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <script>
+      // ============================================
+      // CONFIGURACIÓN
+      // ============================================
+
+      /*
+      const CONFIG = {
+        SURFACE_Y: 0,
+        MYCELIUM_Y: -3,
+        GRID_SIZE: 100,
+        GRID_RESOLUTION: 150, // Balance entre velocidad y precisión
+        NUM_TREES: 5, // Menos árboles para empezar
+        NUM_AGENTS: 400, // Más agentes para mejor exploración
+        AGENT_SPEED: 0.6, // Velocidad moderada
+        DEPOSIT_AMOUNT: 12, // Buena cantidad de feromona
+        EVAPORATION_RATE: 0.94, // Evaporación balanceada
+        DIFFUSION_RATE: 0.3, // Buena difusión
+        SENSOR_ANGLE: Math.PI / 4,
+        SENSOR_DISTANCE: 4, // Sensores más largos
+        PHEROMONE_THRESHOLD: 50, // Umbral más realista
+      };
+        */
+
+      const CONFIG = {
+        SURFACE_Y: 0,
+        MYCELIUM_Y: -3,
+        GRID_SIZE: 100,
+        GRID_RESOLUTION: 35, // ← Reducido (más rápido)
+        NUM_TREES: 6, // ← Menos árboles
+        NUM_AGENTS: 300, // ← Más agentes
+        AGENT_SPEED: 1.2, // ← Más rápido
+        DEPOSIT_AMOUNT: 20, // ← Mucha feromona
+        EVAPORATION_RATE: 0.9, // ← Evaporación agresiva
+        DIFFUSION_RATE: 0.3, // ← Difusión rápida
+        SENSOR_ANGLE: Math.PI / 4,
+        SENSOR_DISTANCE: 3,
+        PHEROMONE_THRESHOLD: 10, // ← Umbral bajo
+      };
+
+      // ============================================
+      // VARIABLES GLOBALES
+      // ============================================
+      let scene, camera, renderer, controls;
+      let trees = [];
+      let agents = [];
+      let pheromoneGrid = [];
+      let networkLines = [];
+      let particles = [];
+      let particleMeshes = [];
+      let simulationRunning = true;
+      let simulationSpeed = 1.0;
+      let iteration = 0;
+
+      // ============================================
+      // INICIALIZACIÓN
+      // ============================================
+      function init() {
+        // Escena
+        scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x0a0a1a);
+        scene.fog = new THREE.Fog(0x0a0a1a, 50, 150);
+
+        // Cámara
+        camera = new THREE.PerspectiveCamera(
+          60,
+          window.innerWidth / window.innerHeight,
+          0.1,
+          1000
+        );
+        camera.position.set(50, 40, 50);
+        camera.lookAt(0, 0, 0);
+
+        // Renderer
+        renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(window.innerWidth, window.innerHeight);
+        document
+          .getElementById("canvas-container")
+          .appendChild(renderer.domElement);
+
+        // Luces
+        const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+        scene.add(ambientLight);
+
+        const directionalLight = new THREE.DirectionalLight(0xffffff, 0.6);
+        directionalLight.position.set(50, 50, 50);
+        scene.add(directionalLight);
+
+        // Plano del suelo
+        const groundGeometry = new THREE.PlaneGeometry(
+          CONFIG.GRID_SIZE,
+          CONFIG.GRID_SIZE
+        );
+        const groundMaterial = new THREE.MeshStandardMaterial({
+          color: 0x2d5016,
+          transparent: true,
+          opacity: 0.6,
+          side: THREE.DoubleSide,
+        });
+        const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+        ground.rotation.x = -Math.PI / 2;
+        ground.position.y = CONFIG.SURFACE_Y;
+        scene.add(ground);
+
+        // Grid de referencia
+        const gridHelper = new THREE.GridHelper(
+          CONFIG.GRID_SIZE,
+          20,
+          0x00ff88,
+          0x003322
+        );
+        gridHelper.position.y = CONFIG.MYCELIUM_Y;
+        scene.add(gridHelper);
+
+        // Inicializar grid de feromona
+        initPheromoneGrid();
+
+        // Crear árboles
+        createTrees();
+
+        // Crear agentes
+        createAgents();
+
+        // Controles de cámara simples
+        setupCameraControls();
+
+        // Event listeners
+        setupEventListeners();
+
+        // Ocultar loading, mostrar UI
+        document.getElementById("loading").classList.add("hidden");
+        document.getElementById("info-panel").classList.remove("hidden");
+        document.getElementById("controls").classList.remove("hidden");
+
+        // Iniciar animación
+        animate();
+      }
+
+      // ============================================
+      // GRID DE FEROMONA
+      // ============================================
+      function initPheromoneGrid() {
+        pheromoneGrid = [];
+        const res = CONFIG.GRID_RESOLUTION;
+        for (let i = 0; i < res; i++) {
+          pheromoneGrid[i] = [];
+          for (let j = 0; j < res; j++) {
+            pheromoneGrid[i][j] = 0;
+          }
+        }
+      }
+
+      function worldToGrid(x, z) {
+        const halfSize = CONFIG.GRID_SIZE / 2;
+        const res = CONFIG.GRID_RESOLUTION;
+        const gridX = Math.floor(((x + halfSize) / CONFIG.GRID_SIZE) * res);
+        const gridZ = Math.floor(((z + halfSize) / CONFIG.GRID_SIZE) * res);
+
+        // Asegurar que estén dentro del rango válido
+        const clampedX = Math.max(0, Math.min(res - 1, gridX));
+        const clampedZ = Math.max(0, Math.min(res - 1, gridZ));
+
+        return { x: clampedX, z: clampedZ };
+      }
+
+      function getPheromone(x, z) {
+        const grid = worldToGrid(x, z);
+        if (!pheromoneGrid[grid.x] || !pheromoneGrid[grid.x][grid.z]) {
+          return 0;
+        }
+        return pheromoneGrid[grid.x][grid.z];
+      }
+
+      function addPheromone(x, z, amount) {
+        const grid = worldToGrid(x, z);
+        if (
+          pheromoneGrid[grid.x] &&
+          pheromoneGrid[grid.x][grid.z] !== undefined
+        ) {
+          pheromoneGrid[grid.x][grid.z] += amount;
+          // Limitar máximo para evitar overflow
+          pheromoneGrid[grid.x][grid.z] = Math.min(
+            pheromoneGrid[grid.x][grid.z],
+            1000
+          );
+        }
+      }
+
+      function updatePheromoneGrid() {
+        const res = CONFIG.GRID_RESOLUTION;
+        const newGrid = [];
+
+        // Difusión y evaporación
+        for (let i = 0; i < res; i++) {
+          newGrid[i] = [];
+          for (let j = 0; j < res; j++) {
+            let sum = pheromoneGrid[i][j];
+            let count = 1;
+
+            // Promedio con vecinos (difusión)
+            for (let di = -1; di <= 1; di++) {
+              for (let dj = -1; dj <= 1; dj++) {
+                if (di === 0 && dj === 0) continue;
+                const ni = i + di;
+                const nj = j + dj;
+                if (ni >= 0 && ni < res && nj >= 0 && nj < res) {
+                  sum += pheromoneGrid[ni][nj] * CONFIG.DIFFUSION_RATE;
+                  count++;
+                }
+              }
+            }
+
+            // Evaporación
+            newGrid[i][j] = (sum / count) * CONFIG.EVAPORATION_RATE;
+          }
+        }
+
+        pheromoneGrid = newGrid;
+      }
+
+      // ============================================
+      // ÁRBOLES
+      // ============================================
+      function createTrees() {
+        // Limpiar árboles anteriores
+        trees.forEach((tree) => {
+          scene.remove(tree.trunk);
+          scene.remove(tree.foliage);
+          scene.remove(tree.root);
+        });
+        trees = [];
+
+        const halfSize = CONFIG.GRID_SIZE / 2 - 10;
+
+        for (let i = 0; i < CONFIG.NUM_TREES; i++) {
+          const x = (Math.random() - 0.5) * halfSize * 2;
+          const z = (Math.random() - 0.5) * halfSize * 2;
+
+          // Tronco
+          const trunkGeometry = new THREE.CylinderGeometry(0.4, 0.6, 4, 8);
+          const trunkMaterial = new THREE.MeshStandardMaterial({
+            color: 0x4a3728,
+          });
+          const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial);
+          trunk.position.set(x, CONFIG.SURFACE_Y + 2, z);
+          scene.add(trunk);
+
+          // Follaje
+          const foliageGeometry = new THREE.SphereGeometry(2, 8, 8);
+          const foliageMaterial = new THREE.MeshStandardMaterial({
+            color: 0x228b22,
+          });
+          const foliage = new THREE.Mesh(foliageGeometry, foliageMaterial);
+          foliage.position.set(x, CONFIG.SURFACE_Y + 5, z);
+          scene.add(foliage);
+
+          // Raíz (línea visual)
+          const rootPoints = [
+            new THREE.Vector3(x, CONFIG.SURFACE_Y, z),
+            new THREE.Vector3(x, CONFIG.MYCELIUM_Y, z),
+          ];
+          const rootGeometry = new THREE.BufferGeometry().setFromPoints(
+            rootPoints
+          );
+          const rootMaterial = new THREE.LineBasicMaterial({
+            color: 0x8b4513,
+            opacity: 0.5,
+            transparent: true,
+          });
+          const root = new THREE.Line(rootGeometry, rootMaterial);
+          scene.add(root);
+
+          trees.push({
+            id: i,
+            x: x,
+            z: z,
+            trunk: trunk,
+            foliage: foliage,
+            root: root,
+          });
+        }
+
+        updateStats();
+      }
+
+      // ============================================
+      // AGENTES PHYSARUM
+      // ============================================
+      class PhysarumAgent {
+        constructor(startTree) {
+          this.x = startTree.x;
+          this.z = startTree.z;
+          this.angle = Math.random() * Math.PI * 2;
+          this.active = true;
+
+          // Visualización de agentes (ahora SÍ visible)
+          const geometry = new THREE.SphereGeometry(0.2, 6, 6);
+          const material = new THREE.MeshBasicMaterial({
+            color: 0xffff00,
+            transparent: true,
+            opacity: 0.6,
+          });
+          this.mesh = new THREE.Mesh(geometry, material);
+          this.mesh.position.set(this.x, CONFIG.MYCELIUM_Y + 0.2, this.z);
+          scene.add(this.mesh); // Ahora SÍ se agrega
+        }
+
+        sense(angle) {
+          const sensorX =
+            this.x + Math.cos(this.angle + angle) * CONFIG.SENSOR_DISTANCE;
+          const sensorZ =
+            this.z + Math.sin(this.angle + angle) * CONFIG.SENSOR_DISTANCE;
+
+          // Verificar límites
+          const halfSize = CONFIG.GRID_SIZE / 2 - 2;
+          if (Math.abs(sensorX) > halfSize || Math.abs(sensorZ) > halfSize) {
+            return 0; // No hay feromona fuera de límites
+          }
+
+          return getPheromone(sensorX, sensorZ);
+        }
+
+        update() {
+          // Sensores
+          const forward = this.sense(0);
+          const left = this.sense(CONFIG.SENSOR_ANGLE);
+          const right = this.sense(-CONFIG.SENSOR_ANGLE);
+
+          // Decisión de dirección mejorada
+          if (forward > left && forward > right) {
+            // Continuar adelante
+          } else if (left > forward && left > right) {
+            this.angle += 0.3;
+          } else if (right > forward && right > left) {
+            this.angle -= 0.3;
+          } else {
+            // Si todo es igual, pequeño cambio aleatorio
+            this.angle += (Math.random() - 0.5) * 0.4;
+          }
+
+          // Movimiento
+          const speed = CONFIG.AGENT_SPEED * simulationSpeed;
+          const newX = this.x + Math.cos(this.angle) * speed;
+          const newZ = this.z + Math.sin(this.angle) * speed;
+
+          // Manejo de límites MEJORADO - rebotar con nuevo ángulo
+          const halfSize = CONFIG.GRID_SIZE / 2 - 3;
+
+          if (Math.abs(newX) > halfSize || Math.abs(newZ) > halfSize) {
+            // En lugar de "pegar" al borde, rebotar
+            this.angle += Math.PI + (Math.random() - 0.5) * 0.5;
+            // No actualizar posición, solo girar
+          } else {
+            // Actualizar posición normal
+            this.x = newX;
+            this.z = newZ;
+          }
+
+          // Depositar feromona
+          addPheromone(this.x, this.z, CONFIG.DEPOSIT_AMOUNT);
+
+          // Bonus: depositar MUCHO más si cerca de un árbol
+          for (let tree of trees) {
+            const dist = Math.sqrt(
+              (this.x - tree.x) ** 2 + (this.z - tree.z) ** 2
+            );
+            if (dist < 4) {
+              addPheromone(this.x, this.z, CONFIG.DEPOSIT_AMOUNT * 10);
+              break;
+            }
+          }
+
+          // Actualizar visualización
+          if (this.mesh) {
+            this.mesh.position.set(this.x, CONFIG.MYCELIUM_Y + 0.2, this.z);
+          }
+        }
+
+        dispose() {
+          if (this.mesh) {
+            scene.remove(this.mesh);
+          }
+        }
+      }
+
+      function createAgents() {
+        // Limpiar agentes anteriores
+        agents.forEach((agent) => agent.dispose());
+        agents = [];
+
+        // Crear agentes CONCENTRADOS alrededor de cada árbol
+        const agentsPerTree = Math.floor(CONFIG.NUM_AGENTS / trees.length);
+
+        trees.forEach((tree) => {
+          for (let i = 0; i < agentsPerTree; i++) {
+            // Crear agente con pequeña variación alrededor del árbol
+            const agent = new PhysarumAgent(tree);
+
+            // Agregar variación inicial pequeña
+            const randomRadius = Math.random() * 2;
+            const randomAngle = Math.random() * Math.PI * 2;
+            agent.x += Math.cos(randomAngle) * randomRadius;
+            agent.z += Math.sin(randomAngle) * randomRadius;
+
+            agents.push(agent);
+          }
+        });
+
+        updateStats();
+      }
+
+      // ============================================
+      // EXTRACCIÓN DE RED
+      // ============================================
+      function extractNetwork() {
+        // Limpiar red anterior
+        networkLines.forEach((line) => scene.remove(line));
+        networkLines = [];
+
+        // Limpiar partículas anteriores
+        particleMeshes.forEach((p) => scene.remove(p));
+        particleMeshes = [];
+        particles = [];
+
+        // Encontrar conexiones fuertes en el grid
+        const res = CONFIG.GRID_RESOLUTION;
+        const visited = Array(res)
+          .fill(0)
+          .map(() => Array(res).fill(false));
+        const connections = [];
+
+        // Identificar células con feromona fuerte
+        const strongCells = [];
+        for (let i = 0; i < res; i++) {
+          for (let j = 0; j < res; j++) {
+            if (pheromoneGrid[i][j] > CONFIG.PHEROMONE_THRESHOLD) {
+              strongCells.push({ x: i, z: j, value: pheromoneGrid[i][j] });
+            }
+          }
+        }
+
+        // Conectar árboles si hay feromona fuerte entre ellos
+        for (let i = 0; i < trees.length; i++) {
+          for (let j = i + 1; j < trees.length; j++) {
+            const tree1 = trees[i];
+            const tree2 = trees[j];
+
+            // Verificar si hay un camino de feromona entre ellos
+            const hasPath = checkPathBetweenTrees(tree1, tree2);
+
+            if (hasPath) {
+              const points = [
+                new THREE.Vector3(tree1.x, CONFIG.MYCELIUM_Y, tree1.z),
+                new THREE.Vector3(tree2.x, CONFIG.MYCELIUM_Y, tree2.z),
+              ];
+
+              const geometry = new THREE.BufferGeometry().setFromPoints(points);
+              const material = new THREE.LineBasicMaterial({
+                color: 0x00ff88,
+                opacity: 0.8,
+                transparent: true,
+                linewidth: 2,
+              });
+
+              const line = new THREE.Line(geometry, material);
+              scene.add(line);
+              networkLines.push(line);
+
+              const connection = {
+                from: tree1,
+                to: tree2,
+                distance: Math.sqrt(
+                  (tree1.x - tree2.x) ** 2 + (tree1.z - tree2.z) ** 2
+                ),
+              };
+              connections.push(connection);
+
+              // Crear partículas para esta conexión
+              createParticlesForConnection(connection);
+            }
+          }
+        }
+
+        updateStats();
+        return connections;
+      }
+
+      // ============================================
+      // SISTEMA DE PARTÍCULAS
+      // ============================================
+      function createParticlesForConnection(connection) {
+        // Crear 3-5 partículas por conexión (MÁS GRANDES)
+        const numParticles = Math.floor(Math.random() * 3) + 3;
+
+        for (let i = 0; i < numParticles; i++) {
+          const particle = {
+            from: connection.from,
+            to: connection.to,
+            progress: Math.random(),
+            speed: 0.008 + Math.random() * 0.012,
+            direction: Math.random() > 0.5 ? 1 : -1,
+          };
+
+          // Crear mesh visual MÁS GRANDE Y BRILLANTE
+          const geometry = new THREE.SphereGeometry(0.8, 8, 8);
+          const material = new THREE.MeshBasicMaterial({
+            color: 0x00ffff,
+            transparent: true,
+            opacity: 0.9,
+          });
+          const mesh = new THREE.Mesh(geometry, material);
+
+          // Agregar glow
+          const glowGeometry = new THREE.SphereGeometry(1.2, 8, 8);
+          const glowMaterial = new THREE.MeshBasicMaterial({
+            color: 0x00ffff,
+            transparent: true,
+            opacity: 0.3,
+          });
+          const glow = new THREE.Mesh(glowGeometry, glowMaterial);
+          mesh.add(glow);
+
+          updateParticlePosition(particle, mesh);
+
+          scene.add(mesh);
+          particles.push(particle);
+          particleMeshes.push(mesh);
+        }
+      }
+
+      function updateParticlePosition(particle, mesh) {
+        // Interpolar posición entre from y to
+        const t = particle.progress;
+        const x = particle.from.x + (particle.to.x - particle.from.x) * t;
+        const z = particle.from.z + (particle.to.z - particle.from.z) * t;
+
+        mesh.position.set(x, CONFIG.MYCELIUM_Y + 0.3, z);
+      }
+
+      function updateParticles() {
+        for (let i = 0; i < particles.length; i++) {
+          const particle = particles[i];
+          const mesh = particleMeshes[i];
+
+          // Actualizar progreso
+          particle.progress +=
+            particle.speed * particle.direction * simulationSpeed;
+
+          // Invertir dirección al llegar a los extremos
+          if (particle.progress >= 1) {
+            particle.progress = 1;
+            particle.direction = -1;
+          } else if (particle.progress <= 0) {
+            particle.progress = 0;
+            particle.direction = 1;
+          }
+
+          // Actualizar posición visual
+          updateParticlePosition(particle, mesh);
+
+          // Efecto de pulso
+          const scale = 1 + Math.sin(Date.now() * 0.01 + i) * 0.2;
+          mesh.scale.set(scale, scale, scale);
+        }
+      }
+
+      function checkPathBetweenTrees(tree1, tree2) {
+        // Verificar si hay suficiente feromona en el camino entre árboles
+        const steps = 20;
+        let totalPheromone = 0;
+
+        for (let i = 0; i <= steps; i++) {
+          const t = i / steps;
+          const x = tree1.x + (tree2.x - tree1.x) * t;
+          const z = tree1.z + (tree2.z - tree1.z) * t;
+
+          totalPheromone += getPheromone(x, z);
+        }
+
+        const avgPheromone = totalPheromone / (steps + 1);
+
+        // Requiere promedio alto de feromona en todo el camino
+        return avgPheromone > CONFIG.PHEROMONE_THRESHOLD * 0.7;
+      }
+
+      // ============================================
+      // CONTROLES DE CÁMARA
+      // ============================================
+      function setupCameraControls() {
+        let isDragging = false;
+        let previousMousePosition = { x: 0, y: 0 };
+        let cameraAngle = 0;
+        let cameraHeight = 40;
+
+        renderer.domElement.addEventListener("mousedown", (e) => {
+          isDragging = true;
+          previousMousePosition = { x: e.clientX, y: e.clientY };
+        });
+
+        renderer.domElement.addEventListener("mousemove", (e) => {
+          if (isDragging) {
+            const deltaX = e.clientX - previousMousePosition.x;
+            const deltaY = e.clientY - previousMousePosition.y;
+
+            cameraAngle -= deltaX * 0.01;
+            cameraHeight = Math.max(
+              10,
+              Math.min(80, cameraHeight + deltaY * 0.1)
+            );
+
+            const radius = 60;
+            camera.position.x = Math.cos(cameraAngle) * radius;
+            camera.position.z = Math.sin(cameraAngle) * radius;
+            camera.position.y = cameraHeight;
+            camera.lookAt(0, 0, 0);
+
+            previousMousePosition = { x: e.clientX, y: e.clientY };
+          }
+        });
+
+        renderer.domElement.addEventListener("mouseup", () => {
+          isDragging = false;
+        });
+
+        renderer.domElement.addEventListener("wheel", (e) => {
+          e.preventDefault();
+          cameraHeight = Math.max(
+            10,
+            Math.min(100, cameraHeight + e.deltaY * 0.05)
+          );
+          camera.position.y = cameraHeight;
+          camera.lookAt(0, 0, 0);
+        });
+      }
+
+      // ============================================
+      // EVENT LISTENERS
+      // ============================================
+      function setupEventListeners() {
+        document
+          .getElementById("btn-regenerate")
+          .addEventListener("click", () => {
+            initPheromoneGrid();
+            createAgents();
+            iteration = 0;
+          });
+
+        document
+          .getElementById("btn-toggle-sim")
+          .addEventListener("click", (e) => {
+            simulationRunning = !simulationRunning;
+            e.target.textContent = simulationRunning
+              ? "⏸️ Pausar"
+              : "▶️ Continuar";
+          });
+
+        document.getElementById("btn-reset").addEventListener("click", () => {
+          createTrees();
+          initPheromoneGrid();
+          createAgents();
+          iteration = 0;
+        });
+
+        document
+          .getElementById("speed-slider")
+          .addEventListener("input", (e) => {
+            simulationSpeed = parseFloat(e.target.value);
+            document.getElementById("speed-value").textContent =
+              simulationSpeed.toFixed(1);
+          });
+
+        document
+          .getElementById("agent-slider")
+          .addEventListener("input", (e) => {
+            CONFIG.NUM_AGENTS = parseInt(e.target.value);
+            document.getElementById("agent-value").textContent =
+              CONFIG.NUM_AGENTS;
+          });
+
+        window.addEventListener("resize", () => {
+          camera.aspect = window.innerWidth / window.innerHeight;
+          camera.updateProjectionMatrix();
+          renderer.setSize(window.innerWidth, window.innerHeight);
+        });
+      }
+
+      // ============================================
+      // ACTUALIZAR ESTADÍSTICAS
+      // ============================================
+      function updateStats() {
+        document.getElementById("tree-count").textContent = trees.length;
+        document.getElementById("connection-count").textContent =
+          networkLines.length;
+        document.getElementById("agent-count").textContent = agents.length;
+        document.getElementById("particle-count").textContent =
+          particles.length;
+        document.getElementById("iteration").textContent = iteration;
+
+        // Estado
+        let status = "";
+        if (iteration < 50) {
+          status = "🔍 Explorando...";
+        } else if (iteration < 200) {
+          status = "🌱 Formando red...";
+        } else if (networkLines.length > 0) {
+          status = "✅ Red activa";
+        } else {
+          status = "⚠️ Sin conexiones";
+        }
+        document.getElementById("status").textContent = status;
+
+        const totalLength = networkLines.reduce((sum, line) => {
+          const start = line.geometry.attributes.position.array.slice(0, 3);
+          const end = line.geometry.attributes.position.array.slice(3, 6);
+          return (
+            sum + Math.sqrt((end[0] - start[0]) ** 2 + (end[2] - start[2]) ** 2)
+          );
+        }, 0);
+
+        document.getElementById("network-length").textContent =
+          totalLength.toFixed(1) + " u";
+      }
+
+      // ============================================
+      // LOOP DE ANIMACIÓN
+      // ============================================
+      function animate() {
+        requestAnimationFrame(animate);
+
+        if (simulationRunning) {
+          // Actualizar agentes
+          agents.forEach((agent) => agent.update());
+
+          // Actualizar grid de feromona cada pocos frames
+          if (iteration % 5 === 0) {
+            updatePheromoneGrid();
+          }
+
+          // Extraer red cada N iteraciones (más frecuente al inicio)
+          if (iteration > 50 && iteration % 30 === 0) {
+            extractNetwork();
+          }
+
+          iteration++;
+
+          if (iteration % 10 === 0) {
+            updateStats();
+          }
+        }
+
+        // Siempre actualizar partículas (incluso cuando pausado se ven bonitas)
+        updateParticles();
+
+        renderer.render(scene, camera);
+      }
+
+      // ============================================
+      // INICIAR
+      // ============================================
+      window.addEventListener("load", init);
+    </script>
+  </body>
+</html>

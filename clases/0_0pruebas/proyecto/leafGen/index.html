@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>L-System Plant Generator - Massive Vegetation & Shaders</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #0d1117;
+      }
+      canvas {
+        display: block;
+      }
+      .dg.main {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif !important;
+        font-size: 13px !important;
+        color: #ccc !important;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+      import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+      import { PlantGenerator } from "./plantGenerator.js"; // Importar el generador
+      //import * as BufferGeometryUtils from "three/addons/utils/BufferGeometryUtils.js"; // Necesario para mergeGeometries
+
+      // Three.js se asegura de que BufferGeometryUtils esté disponible globalmente si no se importa directamente
+      // pero es buena práctica importarlo si se usa.
+      if (THREE.BufferGeometryUtils === undefined) {
+        THREE.BufferGeometryUtils = BufferGeometryUtils;
+      }
+
+      // --- 1. CONFIGURACIÓN DEL SISTEMA L Y PARÁMETROS ---
+
+      const params = {
+        iterations: 4,
+        angle: 25,
+        lengthFactor: 0.7,
+        initialLength: 10,
+        thickness: 0.5,
+        axiom: "F",
+        rules: {
+          F: "F[+F]F[-F]F",
+        },
+        color: "#7C4B25", // Color de la rama (marrón)
+        leafColor: "#228B22", // Color de las hojas (verde)
+        leafSize: 1.2,
+        leafDensity: 0.6, // Probabilidad de que aparezca una hoja en el extremo de una rama pequeña
+        numPlants: 10, // Número de plantas para vegetación masiva
+        plantSpread: 50, // Dispersión de las plantas en el terreno
+        resetCamera: () => {
+          //camera.position.set(params.numPlants * 0.5, 30, params.numPlants * 2);
+          camera.position.set(20, 30, 50);
+          controls.target.set(0, 10, 0);
+          controls.update();
+        },
+      };
+
+      // --- 2. CONFIGURACIÓN DE THREE.JS ---
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x87ceeb); // Cielo claro
+
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+      camera.position.set(params.numPlants * 0.5, 30, params.numPlants * 2);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.shadowMap.enabled = true; // Habilitar sombras
+      renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Sombras suaves
+      document.body.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.target.set(0, 10, 0);
+      controls.update();
+
+      // Luces
+      scene.add(new THREE.AmbientLight(0x404040, 3)); // Luz ambiente suave
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 1.5);
+      directionalLight.position.set(100, 200, 100);
+      directionalLight.castShadow = true;
+      // Configuración de sombra para la luz direccional
+      directionalLight.shadow.mapSize.width = 2048;
+      directionalLight.shadow.mapSize.height = 2048;
+      directionalLight.shadow.camera.near = 0.5;
+      directionalLight.shadow.camera.far = 500;
+      directionalLight.shadow.camera.left = -100;
+      directionalLight.shadow.camera.right = 100;
+      directionalLight.shadow.camera.top = 100;
+      directionalLight.shadow.camera.bottom = -100;
+      scene.add(directionalLight);
+
+      // Terreno (plano)
+      const groundGeometry = new THREE.PlaneGeometry(200, 200);
+      const groundMaterial = new THREE.MeshStandardMaterial({
+        color: 0x556b2f,
+        roughness: 0.9,
+      });
+      const ground = new THREE.Mesh(groundGeometry, groundMaterial);
+      ground.rotation.x = -Math.PI / 2;
+      ground.receiveShadow = true;
+      scene.add(ground);
+
+      // Grupo principal para contener TODAS las plantas
+      const allPlantsGroup = new THREE.Group();
+      scene.add(allPlantsGroup);
+
+      // Geometría para las hojas instanciadas
+      const leafGeometry = new THREE.PlaneGeometry(
+        params.leafSize,
+        params.leafSize
+      );
+      // Desplazar el pivote para que la hoja rote desde la base
+      leafGeometry.translate(0, params.leafSize / 2, 0);
+
+      let instancedLeafMeshes = []; // Array para almacenar los InstancedMesh de hojas
+
+      // --- 3. GENERACIÓN MASIVA DE PLANTAS ---
+
+      function generateMassiveVegetation() {
+        // Limpiar plantas anteriores
+        allPlantsGroup.children.forEach((child) => {
+          if (child.isMesh) {
+            child.geometry.dispose();
+            child.material.dispose();
+          } else if (child.isInstancedMesh) {
+            child.geometry.dispose();
+            child.material.dispose();
+          }
+        });
+        allPlantsGroup.remove(...allPlantsGroup.children);
+        instancedLeafMeshes = [];
+
+        const plantGenerator = new PlantGenerator(params);
+        const dummy = new THREE.Object3D(); // Objeto para posicionar las instancias
+
+        const allBranchGeometries = [];
+        const allLeafData = [];
+
+        for (let i = 0; i < params.numPlants; i++) {
+          const { branchGeometry, leafData } =
+            plantGenerator.generatePlantGeometry();
+
+          // Posicionar cada planta aleatoriamente en el terreno
+          const posX = (Math.random() - 0.5) * params.plantSpread;
+          const posZ = (Math.random() - 0.5) * params.plantSpread;
+          const rotationY = Math.random() * Math.PI * 2; // Rotación aleatoria en Y
+
+          // Transformar la geometría para su posición global
+          const plantTransform = new THREE.Matrix4();
+          plantTransform.makeRotationY(rotationY);
+          plantTransform.setPosition(posX, 0, posZ);
+          branchGeometry.applyMatrix4(plantTransform);
+          allBranchGeometries.push(branchGeometry);
+
+          // Recopilar datos de hojas para instancing
+          leafData.positions.forEach((pos, idx) => {
+            pos.applyMatrix4(plantTransform); // Transformar posición de hoja
+            const leafRot = leafData.rotations[idx].clone();
+            leafRot.premultiply(
+              new THREE.Quaternion().setFromAxisAngle(
+                new THREE.Vector3(0, 1, 0),
+                rotationY
+              )
+            ); // Rotar también la orientación de la hoja
+            allLeafData.push({
+              position: pos,
+              scale: leafData.scales[idx],
+              rotation: leafRot,
+            });
+          });
+        }
+
+        // Unir todas las geometrías de ramas en una sola
+        if (allBranchGeometries.length > 0) {
+          const mergedBranches =
+            THREE.BufferGeometryUtils.mergeGeometries(allBranchGeometries);
+          const branchMesh = new THREE.Mesh(
+            mergedBranches,
+            plantGenerator.trunkMaterial
+          );
+          branchMesh.castShadow = true;
+          branchMesh.receiveShadow = true;
+          allPlantsGroup.add(branchMesh);
+        }
+
+        // Crear InstancedMesh para todas las hojas
+        if (allLeafData.length > 0) {
+          const instancedLeaves = new THREE.InstancedMesh(
+            leafGeometry,
+            plantGenerator.leafMaterial,
+            allLeafData.length
+          );
+          instancedLeaves.castShadow = true;
+          instancedLeaves.receiveShadow = true; // Las hojas también pueden recibir sombras
+
+          const rotationAxis = new THREE.Vector3(1, 0, 0); // Rotar hojas para que estén en el plano
+          const leafQuat = new THREE.Quaternion().setFromAxisAngle(
+            rotationAxis,
+            -Math.PI / 2
+          ); // Rotar de vertical a horizontal
+
+          allLeafData.forEach((data, i) => {
+            dummy.position.copy(data.position);
+            dummy.scale.set(
+              data.scale * params.leafSize,
+              data.scale * params.leafSize,
+              data.scale * params.leafSize
+            );
+            dummy.rotation.setFromQuaternion(data.rotation);
+            dummy.rotateOnAxis(rotationAxis, Math.PI / 2); // Corregir la orientación de la hoja
+            dummy.updateMatrix();
+            instancedLeaves.setMatrixAt(i, dummy.matrix);
+            // Para que las hojas se vean con el color correcto
+            // instancedLeaves.setColorAt(i, new THREE.Color(params.leafColor));
+          });
+          instancedLeaves.instanceMatrix.needsUpdate = true;
+          // instancedLeaves.instanceColor.needsUpdate = true;
+          allPlantsGroup.add(instancedLeaves);
+          instancedLeafMeshes.push(instancedLeaves);
+        }
+      }
+
+      // --- 4. FUNCIÓN PRINCIPAL DE EJECUCIÓN Y GUI ---
+
+      // Crear la GUI
+      const gui = new GUI();
+      gui.title("L-System Parameters (Vegetación Masiva)");
+
+      gui
+        .add(params, "iterations", 1, 6, 1)
+        .name("Iteraciones (N)")
+        .onChange(generateMassiveVegetation);
+      gui
+        .add(params, "angle", 10, 90, 1)
+        .name("Ángulo de Giro (°)")
+        .onChange(generateMassiveVegetation);
+      gui
+        .add(params, "lengthFactor", 0.5, 0.9, 0.05)
+        .name("Factor de Reducción")
+        .onChange(generateMassiveVegetation);
+      gui
+        .add(params, "initialLength", 5, 20, 1)
+        .name("Longitud Inicial")
+        .onChange(generateMassiveVegetation);
+      gui
+        .add(params, "thickness", 0.1, 1.0, 0.1)
+        .name("Grosor Base Rama")
+        .onChange(generateMassiveVegetation);
+      gui
+        .addColor(params, "color")
+        .name("Color Tronco")
+        .onChange(generateMassiveVegetation);
+
+      const leavesFolder = gui.addFolder("Hojas");
+      leavesFolder
+        .add(params, "leafDensity", 0.0, 1.0, 0.1)
+        .name("Densidad Hojas")
+        .onChange(generateMassiveVegetation);
+      leavesFolder
+        .add(params, "leafSize", 0.5, 3.0, 0.1)
+        .name("Tamaño Hojas")
+        .onChange(generateMassiveVegetation);
+      leavesFolder
+        .addColor(params, "leafColor")
+        .name("Color Hojas")
+        .onChange(generateMassiveVegetation);
+
+      const massGenFolder = gui.addFolder("Generación Masiva");
+      massGenFolder
+        .add(params, "numPlants", 1, 100, 1)
+        .name("Num Plantas")
+        .onChange(generateMassiveVegetation);
+      massGenFolder
+        .add(params, "plantSpread", 10, 200, 10)
+        .name("Dispersión")
+        .onChange(generateMassiveVegetation);
+
+      gui.add(params, "resetCamera").name("Reset Cámara");
+
+      // --- 5. ANIMACIÓN Y INICIO ---
+
+      generateMassiveVegetation(); // Generar las plantas iniciales
+
+      function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      }
+
+      animate();
+
+      // Manejar redimensionamiento de ventana
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    </script>
+  </body>
+</html>

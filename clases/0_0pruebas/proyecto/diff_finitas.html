@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Simulación de Difusión de Calor 3D (Euler Explícito)</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #111;
+      }
+      canvas {
+        display: block;
+      }
+      #info {
+        position: absolute;
+        top: 10px;
+        left: 10px;
+        color: white;
+        font-family: Arial, sans-serif;
+        font-size: 14px;
+        background: rgba(0, 0, 0, 0.5);
+        padding: 8px;
+        border-radius: 5px;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="info">
+      Simulación de Difusión de Calor 3D<br />
+      Método: Euler Explícito (Estable si $\alpha \Delta t / \Delta x^2 \leq
+      1/6$)
+    </div>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
+
+      // --- Configuración de la Simulación ---
+      const N = 20; // Dimensión de la malla (N x N x N nodos)
+      const N_CUBED = N * N * N;
+      const ALPHA = 1.0; // Coeficiente de difusividad térmica
+      const DT = 0.001; // Paso de tiempo
+      const DX = 1.0; // Paso espacial
+      const LAMBDA = (ALPHA * DT) / (DX * DX); // Factor de estabilidad (debe ser <= 1/6 para Euler Explícito)
+
+      // Arrays para almacenar la temperatura actual y la siguiente
+      let temp_current = new Float32Array(N_CUBED);
+      let temp_next = new Float32Array(N_CUBED);
+
+      // Mapa de Colores: Mapea la temperatura (0.0 a 1.0) a un color RGB
+      const COLOR_COLD = new THREE.Color(0x0000ff); // Azul (Frío)
+      const COLOR_HOT = new THREE.Color(0xff0000); // Rojo (Caliente)
+      const TEMP_MIN = 0.1;
+      const TEMP_MAX = 1.0;
+
+      // --- Funciones de Simulación ---
+
+      function index(i, j, k) {
+        return i * N * N + j * N + k;
+      }
+
+      function get_color(temperature) {
+        // Normalizar la temperatura en el rango [0, 1]
+        const normalized = THREE.MathUtils.clamp(
+          (temperature - TEMP_MIN) / (TEMP_MAX - TEMP_MIN),
+          0,
+          1
+        );
+
+        // Interpolación lineal de color (LERP) de Frío a Caliente
+        return COLOR_COLD.clone().lerp(COLOR_HOT, normalized);
+      }
+
+      function initialize_temperature() {
+        for (let i = 0; i < N; i++) {
+          for (let j = 0; j < N; j++) {
+            for (let k = 0; k < N; k++) {
+              let idx = index(i, j, k);
+              temp_current[idx] = TEMP_MIN; // Temperatura ambiente (fría)
+
+              // Fuente de calor inicial: un bloque caliente en el centro
+              if (
+                i > N / 2 - 3 &&
+                i < N / 2 + 3 &&
+                j > N / 2 - 3 &&
+                j < N / 2 + 3 &&
+                k > N / 2 - 3 &&
+                k < N / 2 + 3
+              ) {
+                temp_current[idx] = TEMP_MAX;
+              }
+            }
+          }
+        }
+        temp_next.set(temp_current);
+      }
+
+      function simulate_heat_step() {
+        // Condición de contorno (Dirichlet): Los bordes mantienen TEMP_MIN
+        for (let i = 1; i < N - 1; i++) {
+          for (let j = 1; j < N - 1; j++) {
+            for (let k = 1; k < N - 1; k++) {
+              const current_idx = index(i, j, k);
+              const T = temp_current[current_idx];
+
+              // Lectura de vecinos (Laplaciano Discretizado en 3D)
+              const T_neighbors =
+                temp_current[index(i + 1, j, k)] +
+                temp_current[index(i - 1, j, k)] +
+                temp_current[index(i, j + 1, k)] +
+                temp_current[index(i, j - 1, k)] +
+                temp_current[index(i, j, k + 1)] +
+                temp_current[index(i, j, k - 1)];
+
+              const laplacian = T_neighbors - 6 * T;
+
+              // Nueva temperatura (Euler Explícito)
+              temp_next[current_idx] = T + LAMBDA * laplacian;
+            }
+          }
+        }
+
+        // Copiar los resultados para el siguiente paso
+        temp_current.set(temp_next);
+      }
+
+      // --- Configuración de Three.js ---
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        100
+      );
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const controls = new (
+        await import("three/addons/controls/OrbitControls.js")
+      ).OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true; // para un movimiento más suave
+
+      // Creación de la Geometría (Nodos representados por un BoxGeometry instanciado)
+      const NODE_SIZE = 1.0 / N;
+      const boxGeometry = new THREE.BoxGeometry(
+        NODE_SIZE,
+        NODE_SIZE,
+        NODE_SIZE
+      );
+      const boxMaterial = new THREE.MeshBasicMaterial({ color: 0xffffff });
+
+      // InstancedMesh es crucial para renderizar miles de cubos eficientemente
+      const meshCount = N_CUBED;
+      const instancedMesh = new THREE.InstancedMesh(
+        boxGeometry,
+        boxMaterial,
+        meshCount
+      );
+
+      const dummy = new THREE.Object3D();
+      const color = new THREE.Color();
+      let instancedIndex = 0;
+
+      for (let i = 0; i < N; i++) {
+        for (let j = 0; j < N; j++) {
+          for (let k = 0; k < N; k++) {
+            // Posicionamiento de cada "voxel"
+            dummy.position.set(
+              (i - N / 2) * NODE_SIZE * 1.05,
+              (j - N / 2) * NODE_SIZE * 1.05,
+              (k - N / 2) * NODE_SIZE * 1.05
+            );
+            dummy.updateMatrix();
+            instancedMesh.setMatrixAt(instancedIndex, dummy.matrix);
+
+            // Asignar el color inicial
+            const temp = temp_current[index(i, j, k)];
+            color.copy(get_color(temp));
+            instancedMesh.setColorAt(instancedIndex, color);
+
+            instancedIndex++;
+          }
+        }
+      }
+
+      instancedMesh.instanceMatrix.needsUpdate = true;
+      instancedMesh.instanceColor.needsUpdate = true;
+      scene.add(instancedMesh);
+
+      camera.position.set(
+        N * NODE_SIZE * 2,
+        N * NODE_SIZE * 2,
+        N * NODE_SIZE * 2
+      );
+      controls.update();
+
+      // Inicializar
+      initialize_temperature();
+
+      // --- Bucle de Animación ---
+
+      function update_visualization() {
+        let instancedIndex = 0;
+        const tempColor = new THREE.Color();
+
+        for (let i = 0; i < N; i++) {
+          for (let j = 0; j < N; j++) {
+            for (let k = 0; k < N; k++) {
+              const temp = temp_current[index(i, j, k)];
+              tempColor.copy(get_color(temp));
+              instancedMesh.setColorAt(instancedIndex, tempColor);
+              instancedIndex++;
+            }
+          }
+        }
+        // Notificar a Three.js que los colores han cambiado
+        instancedMesh.instanceColor.needsUpdate = true;
+      }
+
+      function animate() {
+        requestAnimationFrame(animate);
+
+        // Ejecutar varios pasos de simulación por frame para acelerar el proceso de difusión
+        for (let i = 0; i < 50; i++) {
+          simulate_heat_step();
+        }
+
+        update_visualization();
+
+        controls.update();
+        renderer.render(scene, camera);
+      }
+
+      window.addEventListener("resize", onWindowResize, false);
+
+      function onWindowResize() {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      }
+
+      animate();
+    </script>
+  </body>
+</html>

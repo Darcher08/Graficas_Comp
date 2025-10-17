@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="es">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>L-System Plant Generator with Three.js</title>
+    <style>
+      body {
+        margin: 0;
+        overflow: hidden;
+        background-color: #0d1117;
+      }
+      canvas {
+        display: block;
+      }
+      /* Estilos básicos para el panel de control */
+      .dg.main {
+        font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif !important;
+        font-size: 13px !important;
+        color: #ccc !important;
+      }
+    </style>
+  </head>
+  <body>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      import * as THREE from "three";
+      import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+      import { GUI } from "three/addons/libs/lil-gui.module.min.js";
+
+      // --- 1. CONFIGURACIÓN DEL SISTEMA L Y PARÁMETROS ---
+
+      const params = {
+        iterations: 3,
+        angle: 25, // Ángulo en grados para la rotación (+ / -)
+        lengthFactor: 0.7, // Factor de reducción de longitud por iteración
+        initialLength: 10,
+        thickness: 0.5,
+        axiom: "F",
+        rules: {
+          F: "F[+F]F[-F]F", // Regla del Arbusto Simple
+          // F: "F[+F]F[-F]F[G]", // Regla para más complejidad
+          // G: "G", // Regla sin cambios para el ejemplo
+        },
+        color: "#7C4B25", // Color de la rama (marrón)
+        resetCamera: () => {
+          camera.position.set(0, 30, 50);
+          controls.target.set(0, 20, 0);
+          controls.update();
+        },
+      };
+
+      // --- 2. CONFIGURACIÓN DE THREE.JS ---
+
+      const scene = new THREE.Scene();
+      scene.background = new THREE.Color(0x282c34);
+
+      const camera = new THREE.PerspectiveCamera(
+        75,
+        window.innerWidth / window.innerHeight,
+        0.1,
+        1000
+      );
+      camera.position.set(0, 30, 50);
+
+      const renderer = new THREE.WebGLRenderer({ antialias: true });
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      document.body.appendChild(renderer.domElement);
+
+      const controls = new OrbitControls(camera, renderer.domElement);
+      controls.enableDamping = true;
+      controls.dampingFactor = 0.05;
+      controls.target.set(0, 20, 0);
+      controls.update();
+
+      // Luces
+      scene.add(new THREE.AmbientLight(0x404040, 3));
+      const directionalLight = new THREE.DirectionalLight(0xffffff, 2);
+      directionalLight.position.set(1, 2, 3);
+      scene.add(directionalLight);
+
+      // Grupo principal para contener la planta
+      let plantGroup = new THREE.Group();
+      scene.add(plantGroup);
+
+      // --- 3. ALGORITMO L-SYSTEM ---
+
+      // Genera la cadena del L-System aplicando las reglas N veces
+      function generateLSystemString(axiom, rules, iterations) {
+        let currentString = axiom;
+        for (let i = 0; i < iterations; i++) {
+          let nextString = "";
+          for (const char of currentString) {
+            // Busca si el carácter tiene una regla de producción
+            nextString += rules[char] ? rules[char] : char;
+          }
+          currentString = nextString;
+        }
+        return currentString;
+      }
+
+      // Dibuja la planta interpretando la cadena generada (Turtle Graphics)
+      function drawPlant(lSystemString) {
+        // Limpiar la planta anterior
+        if (plantGroup) {
+          plantGroup.children.forEach((child) => child.geometry.dispose());
+          plantGroup.children.forEach((child) => child.material.dispose());
+          scene.remove(plantGroup);
+        }
+        plantGroup = new THREE.Group();
+        scene.add(plantGroup);
+
+        // Estado de la "tortuga" y stack para ramificaciones
+        const state = {
+          position: new THREE.Vector3(0, 0, 0),
+          orientation: new THREE.Quaternion(),
+          length: params.initialLength,
+        };
+        const stack = []; // Pila para guardar estados ([ y ])
+        const angleRad = THREE.MathUtils.degToRad(params.angle);
+        const branchMaterial = new THREE.MeshPhongMaterial({
+          color: params.color,
+        });
+
+        for (const char of lSystemString) {
+          switch (char) {
+            case "F": // Avanzar y dibujar una rama
+              const startPos = state.position.clone();
+
+              // Vector de dirección actual (eje Y local)
+              const direction = new THREE.Vector3(0, 1, 0).applyQuaternion(
+                state.orientation
+              );
+
+              // Nueva posición
+              const endPos = startPos
+                .clone()
+                .add(direction.multiplyScalar(state.length));
+
+              // Crear el cilindro de la rama
+              createCylinder(startPos, endPos, state.length, branchMaterial);
+
+              // Actualizar el estado de la tortuga
+              state.position.copy(endPos);
+              state.length *= params.lengthFactor; // Reducción de longitud
+
+              break;
+
+            case "+": // Girar derecha (rotación alrededor del eje Z de la tortuga)
+              state.orientation.premultiply(
+                new THREE.Quaternion().setFromAxisAngle(
+                  new THREE.Vector3(0, 0, 1).applyQuaternion(state.orientation),
+                  angleRad
+                )
+              );
+              break;
+
+            case "-": // Girar izquierda
+              state.orientation.premultiply(
+                new THREE.Quaternion().setFromAxisAngle(
+                  new THREE.Vector3(0, 0, 1).applyQuaternion(state.orientation),
+                  -angleRad
+                )
+              );
+              break;
+
+            case "[": // Guardar estado
+              stack.push({
+                position: state.position.clone(),
+                orientation: state.orientation.clone(),
+                length: state.length,
+              });
+              break;
+
+            case "]": // Restaurar estado
+              const savedState = stack.pop();
+              if (savedState) {
+                state.position.copy(savedState.position);
+                state.orientation.copy(savedState.orientation);
+                state.length = savedState.length;
+              }
+              break;
+          }
+        }
+        // Mover el grupo de la planta para que la base esté en Y=0
+        plantGroup.translateY(-params.initialLength / 2);
+      }
+
+      // Función auxiliar para dibujar un cilindro (rama)
+      function createCylinder(start, end, length, material) {
+        const cylinderGeometry = new THREE.CylinderGeometry(
+          params.thickness,
+          params.thickness * params.lengthFactor,
+          length,
+          8
+        );
+        const mesh = new THREE.Mesh(cylinderGeometry, material);
+
+        // Posicionar a la mitad
+        mesh.position.lerpVectors(start, end, 0.5);
+
+        // Orientar
+        const direction = new THREE.Vector3().subVectors(end, start);
+        const axis = new THREE.Vector3(0, 1, 0); // Eje original del cilindro (arriba)
+        mesh.quaternion.setFromUnitVectors(axis, direction.normalize());
+
+        plantGroup.add(mesh);
+      }
+
+      // --- 4. FUNCIÓN PRINCIPAL DE EJECUCIÓN Y GUI ---
+
+      function generateAndDraw() {
+        const lSystemString = generateLSystemString(
+          params.axiom,
+          params.rules,
+          params.iterations
+        );
+        drawPlant(lSystemString);
+      }
+
+      // Crear la GUI
+      const gui = new GUI();
+      gui.title("L-System Parameters (Arbusto)");
+
+      gui
+        .add(params, "iterations", 1, 6, 1)
+        .name("Iteraciones (N)")
+        .onChange(generateAndDraw);
+      gui
+        .add(params, "angle", 10, 90, 1)
+        .name("Ángulo de Giro (°)")
+        .onChange(generateAndDraw);
+      gui
+        .add(params, "lengthFactor", 0.5, 0.9, 0.05)
+        .name("Factor de Reducción")
+        .onChange(generateAndDraw);
+      gui
+        .add(params, "initialLength", 5, 20, 1)
+        .name("Longitud Inicial")
+        .onChange(generateAndDraw);
+      gui
+        .add(params, "thickness", 0.1, 1.0, 0.1)
+        .name("Grosor de Rama")
+        .onChange(generateAndDraw);
+
+      // Control para el color
+      gui
+        .addColor(params, "color")
+        .name("Color de la Rama")
+        .onChange(generateAndDraw);
+
+      // Control para la cámara
+      gui.add(params, "resetCamera").name("Reset Cámara");
+
+      // Control para las reglas (más avanzado)
+      const rulesFolder = gui.addFolder("Reglas del L-System");
+      rulesFolder
+        .add(params.rules, "F")
+        .name("Regla para F")
+        .onChange(generateAndDraw)
+        .listen();
+      rulesFolder
+        .add(params, "axiom")
+        .name("Axioma Inicial")
+        .onChange(generateAndDraw);
+
+      // --- 5. ANIMACIÓN Y INICIO ---
+
+      generateAndDraw(); // Generar la planta inicial
+
+      function animate() {
+        requestAnimationFrame(animate);
+        controls.update();
+        renderer.render(scene, camera);
+      }
+
+      animate();
+
+      // Manejar redimensionamiento de ventana
+      window.addEventListener("resize", () => {
+        camera.aspect = window.innerWidth / window.innerHeight;
+        camera.updateProjectionMatrix();
+        renderer.setSize(window.innerWidth, window.innerHeight);
+      });
+    </script>
+  </body>
+</html>
